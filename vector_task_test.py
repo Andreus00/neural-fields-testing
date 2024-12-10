@@ -247,16 +247,20 @@ if __name__ == "__main__":
     cube_sdf_model_1 = copy.deepcopy(sphere_sdf_model)
     cube_sdf_model_1 = train_sdf_network(cube_points_1, cube_distances_1, model=cube_sdf_model_1)
 
-    extract_task_vector(sphere_sdf_model, cube_sdf_model_1)
+    # task_vectors_1 = extract_task_vector(sphere_sdf_model, cube_sdf_model_1)
 
     cube_points_2, cube_distances_2 = generate_cube_sdf_data([0.3, .2, 0.4], 0.5)
     print(cube_points_2.shape, cube_distances_2.shape)
     cube_sdf_model_2 = copy.deepcopy(sphere_sdf_model)
     cube_sdf_model_2 = train_sdf_network(cube_points_2, cube_distances_2, model=cube_sdf_model_2)
 
+    # task_vectors_2 = extract_task_vector(sphere_sdf_model, cube_sdf_model_2)
+
 
     # visualize_sdf(cube_sdf_model)
     # visualize_sdf(sphere_sdf_model)
+
+    merge_and_visualize_models(cube_sdf_model_1, cube_sdf_model_2)
     
     
 
