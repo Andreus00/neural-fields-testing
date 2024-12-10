@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import copy
 
 # Definizione della rete neurale
 class SDFNetwork(nn.Module):
@@ -114,7 +115,7 @@ def distance_to_square(point, vertices):
     return min(distances)
 
 # Addestramento della rete
-def train_sdf_network(points, distances, ):
+def train_sdf_network(points, distances, model=None):
     # Iparametri
     num_epochs = 100
     batch_size = 64
@@ -125,7 +126,7 @@ def train_sdf_network(points, distances, ):
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # Creazione della rete
-    model = SDFNetwork()
+    model = SDFNetwork() if model is None else model
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -208,22 +209,55 @@ def merge_and_visualize_models(model1, model2, steps=10, grid_size=70, threshold
         print(f"Visualizzazione per alpha = {alpha:.2f}")
         visualize_sdf(merged_model, grid_size=grid_size, threshold=threshold)
 
+def extract_task_vector(base_model: SDFNetwork, trained_model: SDFNetwork):
+    '''
+    This function extracts the task vectors from the models by subtracting 
+    the weights of the base model from the learned weights of the trained one.
+    '''
+    task_vectors = {}
 
-# Esempio di esecuzione
+    for (n1, l1), (n2, l2) in zip(dict(base_model.named_modules()), dict(trained_model.named_modules())):
+        if not n1.startswith('network.'):
+            continue
+        elif l1.__str__ != l2.__str__ or n1 != n2:
+            raise ValueError('The networks seem to have a different architecture. Found:', l1, '-- and --', l2)
+        if isinstance(l1, nn.Linear) and isinstance(l2, nn.Linear):
+            # we can extract task vecotrs
+            task_vectors[n1] = {
+                'weight': l2.state_dict()['weight'] - l1.state_dict()['weight'],
+                'bias': l2.state_dict()['bias'] - l1.state_dict()['bias'],
+            }
+    return task_vectors
+
+
 if __name__ == "__main__":
+    # Idea: First generate a neural field that represents a sphere.
+    #       This will be our "base model". Then, we clone that model and
+    #       train it more to learn a cube.
+    #       Once it is trained, we get the delta difference between the base
+    #       and the trained model. This delta difference is denoted as task vector.
+    #       We then want to do the same thing for another cube.
+    base_points, base_distances = generate_sphere_sdf_data()
+    print(base_points.shape, base_distances.shape)
+    sphere_sdf_model = train_sdf_network(base_points, base_distances)
 
-    # Generazione dei dati
-    cube_points, cube_distances = generate_cube_sdf_data([0, 0, 0], 1)
-    print(cube_points.shape, cube_distances.shape)
-    cube_sdf_model = train_sdf_network(cube_points, cube_distances)
 
-    sphere_points, sphere_distances = generate_sphere_sdf_data()
-    print(sphere_points.shape, sphere_distances.shape)
-    sphere_sdf_model = train_sdf_network(sphere_points, sphere_distances)
+    cube_points_1, cube_distances_1 = generate_cube_sdf_data([0, 0, 0], 0.6)
+    print(cube_points_1.shape, cube_distances_1.shape)
+    cube_sdf_model_1 = copy.deepcopy(sphere_sdf_model)
+    cube_sdf_model_1 = train_sdf_network(cube_points_1, cube_distances_1, model=cube_sdf_model_1)
+
+    extract_task_vector(sphere_sdf_model, cube_sdf_model_1)
+
+    cube_points_2, cube_distances_2 = generate_cube_sdf_data([0.3, .2, 0.4], 0.5)
+    print(cube_points_2.shape, cube_distances_2.shape)
+    cube_sdf_model_2 = copy.deepcopy(sphere_sdf_model)
+    cube_sdf_model_2 = train_sdf_network(cube_points_2, cube_distances_2, model=cube_sdf_model_2)
+
 
     # visualize_sdf(cube_sdf_model)
     # visualize_sdf(sphere_sdf_model)
-
-    merge_and_visualize_models(cube_sdf_model, sphere_sdf_model, steps=10)
+    
+    
 
 
