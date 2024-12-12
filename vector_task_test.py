@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import copy
+from typing import Dict
 
 # Definizione della rete neurale
 class SDFNetwork(nn.Module):
@@ -115,9 +116,8 @@ def distance_to_square(point, vertices):
     return min(distances)
 
 # Addestramento della rete
-def train_sdf_network(points, distances, model=None):
+def train_sdf_network(points, distances, model=None, num_epochs=100):
     # Iparametri
-    num_epochs = 100
     batch_size = 64
     learning_rate = 1e-3
 
@@ -216,18 +216,41 @@ def extract_task_vector(base_model: SDFNetwork, trained_model: SDFNetwork):
     '''
     task_vectors = {}
 
-    for (n1, l1), (n2, l2) in zip(dict(base_model.named_modules()), dict(trained_model.named_modules())):
+    for (n1, l1), (n2, l2) in zip(dict(base_model.named_modules()).items(), dict(trained_model.named_modules()).items()):
         if not n1.startswith('network.'):
             continue
-        elif l1.__str__ != l2.__str__ or n1 != n2:
-            raise ValueError('The networks seem to have a different architecture. Found:', l1, '-- and --', l2)
+        elif str(l1)!= str(l2) or n1 != n2:
+            raise ValueError('The networks seem to have a different architecture. Found:', n1, ' - ', l1, '-- and --', n2, ' - ', l2)
         if isinstance(l1, nn.Linear) and isinstance(l2, nn.Linear):
             # we can extract task vecotrs
             task_vectors[n1] = {
                 'weight': l2.state_dict()['weight'] - l1.state_dict()['weight'],
                 'bias': l2.state_dict()['bias'] - l1.state_dict()['bias'],
             }
+
+    print(task_vectors.keys())
     return task_vectors
+
+
+
+def apply_task_vector(base_model: SDFNetwork, task_vectors: Dict[str, None]):
+    '''
+    This function extracts the task vectors from the models by subtracting 
+    the weights of the base model from the learned weights of the trained one.
+    '''
+
+    new_model = copy.deepcopy(base_model)
+    base_modules = dict(base_model.named_modules())
+    for (layer_name, data) in task_vectors.items():
+        if not hasattr(new_model, layer_name):
+            print("layername:", layer_name)
+            raise ValueError(f"The network and the task vectors are not compatible. Attribute {layer_name} not found")
+        else:
+            layer: torch.nn.Linear= getattr(new_model, layer_name)
+            for k, v in data:
+                layer.state_dict()[k] += v 
+
+    return new_model
 
 
 if __name__ == "__main__":
@@ -237,30 +260,38 @@ if __name__ == "__main__":
     #       Once it is trained, we get the delta difference between the base
     #       and the trained model. This delta difference is denoted as task vector.
     #       We then want to do the same thing for another cube.
+
+    ## Train the base model
     base_points, base_distances = generate_sphere_sdf_data()
     print(base_points.shape, base_distances.shape)
-    sphere_sdf_model = train_sdf_network(base_points, base_distances)
+    sphere_sdf_model = train_sdf_network(base_points, base_distances, num_epochs=10)
 
 
+    ## train the first cube
     cube_points_1, cube_distances_1 = generate_cube_sdf_data([0, 0, 0], 0.6)
     print(cube_points_1.shape, cube_distances_1.shape)
     cube_sdf_model_1 = copy.deepcopy(sphere_sdf_model)
-    cube_sdf_model_1 = train_sdf_network(cube_points_1, cube_distances_1, model=cube_sdf_model_1)
+    cube_sdf_model_1 = train_sdf_network(cube_points_1, cube_distances_1, model=cube_sdf_model_1, num_epochs=10)
 
-    # task_vectors_1 = extract_task_vector(sphere_sdf_model, cube_sdf_model_1)
-
+    ## Train the second cube
     cube_points_2, cube_distances_2 = generate_cube_sdf_data([0.3, .2, 0.4], 0.5)
     print(cube_points_2.shape, cube_distances_2.shape)
     cube_sdf_model_2 = copy.deepcopy(sphere_sdf_model)
-    cube_sdf_model_2 = train_sdf_network(cube_points_2, cube_distances_2, model=cube_sdf_model_2)
-
-    # task_vectors_2 = extract_task_vector(sphere_sdf_model, cube_sdf_model_2)
+    cube_sdf_model_2 = train_sdf_network(cube_points_2, cube_distances_2, model=cube_sdf_model_2, num_epochs=10)
 
 
-    # visualize_sdf(cube_sdf_model)
-    # visualize_sdf(sphere_sdf_model)
+    ## Extract task vectors
+    task_vectors_1 = extract_task_vector(sphere_sdf_model, cube_sdf_model_1)
+    task_vectors_2 = extract_task_vector(sphere_sdf_model, cube_sdf_model_2)
+    
+    # apply the TV extracted from the first cube to the TV of the second cube
 
-    merge_and_visualize_models(cube_sdf_model_1, cube_sdf_model_2)
+    merged_model = apply_task_vector(cube_sdf_model_2, task_vectors_1)
+
+    visualize_sdf(cube_sdf_model_2)
+    visualize_sdf(merged_model)
+
+    # merge_and_visualize_models(cube_sdf_model_1, cube_sdf_model_2)
     
     
 
